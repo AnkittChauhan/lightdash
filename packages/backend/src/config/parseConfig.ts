@@ -717,6 +717,7 @@ export type LightdashConfig = {
                 batchSize: number;
                 delayMs: number;
                 maxBatches?: number;
+                schedule: string;
             };
         };
     };
@@ -1447,6 +1448,9 @@ export const parseConfig = (): LightdashConfig => {
                         getIntegerFromEnvironmentVariable(
                             'QUERY_HISTORY_MAX_BATCHES',
                         ) || 100,
+                    schedule:
+                        process.env.QUERY_HISTORY_CLEANUP_SCHEDULE ||
+                        '0 2 * * *',
                 },
             },
         },

@@ -178,6 +178,13 @@ import {
     QueryHistoryTableName,
 } from '../database/entities/queryHistory';
 import {
+    RolesTableName,
+    RoleTable,
+    ScopedRolesTableName,
+    ScopedRoleTable,
+    UserRoleTable,
+} from '../database/entities/roles';
+import {
     SavedSqlTable,
     SavedSqlTableName,
     SavedSqlVersionsTable,
@@ -366,5 +373,7 @@ declare module 'knex/types/tables' {
         [OrganizationColorPaletteTableName]: OrganizationColorPaletteTable;
         [QueryHistoryTableName]: QueryHistoryTable;
         [ProjectParametersTableName]: ProjectParametersTable;
+        [RolesTableName]: RoleTable;
+        [ScopedRolesTableName]: ScopedRoleTable;
     }
 }

@@ -44,3 +44,10 @@ export const TOOL_DISPLAY_MESSAGES_AFTER_TOOL_CALL =
         generateTimeSeriesVizConfig: 'Generated a line chart',
         findCharts: 'Found relevant charts',
     });
+
+// TODO: Be smarter about this
+export const AVAILABLE_VISUALIZATION_TYPES = [
+    'bar charts',
+    'time series charts',
+    'tables',
+] as const;

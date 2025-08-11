@@ -1,0 +1,170 @@
+name: AI Agent Integration Tests
+
+on:
+  schedule:
+    # Runs on Monday to Friday at 8:00 UTC
+    # Use https://crontab.guru/#0_8_*_*_1-5 for reference
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch: # Allow manual trigger from GitHub Actions UI
+  pull_request:
+    paths:
+      - '.github/workflows/ai-agent-integration-tests.yml'
+      - 'packages/backend/src/ee/services/ai/agents/**'
+
+
+permissions:
+  contents: read
+
+jobs:
+  ai-agent-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: lightdash
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+          
+      - name: Install packages
+        run: pnpm install --frozen-lockfile --prefer-offline
+        
+      - name: Build common
+        run: pnpm common-build
+        
+      - name: Build warehouses
+        run: pnpm warehouses-build
+        
+      - name: Build backend
+        run: pnpm backend-build
+
+      - name: Setup Python and dbt
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9.x'
+      
+      - name: Install dbt
+        run: pip install dbt-core~=1.7.0 dbt-postgres~=1.7.0
+
+      - name: Create dbt1.7 symlink
+        run: |
+          sudo ln -sf $(which dbt) /usr/local/bin/dbt1.7
+          dbt1.7 --version
+
+      - name: Run dbt deps in demo project
+        run: dbt deps --profiles-dir $PROFILES_DIR --project-dir $PROJECT_DIR
+        env:
+          PROJECT_DIR: './examples/full-jaffle-shop-demo/dbt'
+          PROFILES_DIR: './examples/full-jaffle-shop-demo/profiles'
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: password
+          PGDATABASE: lightdash
+        
+      - name: Setup database
+        run: |
+          PGPASSWORD=password createdb -h localhost -U postgres lightdash_test
+          cd packages/backend
+          pnpm run migrate
+        env:
+          PGCONNECTIONURI: postgresql://postgres:password@localhost:5432/lightdash
+          LIGHTDASH_SECRET: test-secret-key-for-ci
+          
+      - name: Run AI Agent Integration Tests
+        id: test_results
+        continue-on-error: true
+        run: |
+          set +e  # Don't exit on test failures
+          pnpm -F backend test:integration -- src/ee/services/ai/agents/tests/agent.integration.test.ts > test_output.log 2>&1
+          TEST_EXIT_CODE=$?
+          echo "test_exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Parse test results
+          PASSED_TESTS=$(grep -c "✓" test_output.log || echo "0")
+          FAILED_TESTS=$(grep -c "✗" test_output.log || echo "0")
+          TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
+          
+          echo "passed_tests=$PASSED_TESTS" >> $GITHUB_OUTPUT
+          echo "failed_tests=$FAILED_TESTS" >> $GITHUB_OUTPUT
+          echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+          
+          # Extract failed test names
+          FAILED_TEST_NAMES=$(grep -A1 "✗" test_output.log | grep -v "✗" | grep -v "^--$" | head -10 | tr '\n' '|' || echo "")
+          echo "failed_test_names=$FAILED_TEST_NAMES" >> $GITHUB_OUTPUT
+          
+          exit $TEST_EXIT_CODE
+        env:
+          PGCONNECTIONURI: postgresql://postgres:password@localhost:5432/lightdash
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: password
+          PGDATABASE: lightdash
+          AI_COPILOT_ENABLED: true
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LIGHTDASH_LICENSE_KEY: ${{ secrets.LIGHTDASH_LICENSE_KEY }}
+          NODE_ENV: test
+          LIGHTDASH_SECRET: test-secret-key-for-ci
+          DBT_DEMO_DIR: ${{ github.workspace }}/examples/full-jaffle-shop-demo
+          LD_SETUP_DBT_VERSION: v1.7
+          
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-agent-test-results
+          path: packages/backend/eval-reports/
+          retention-days: 7
+
+
+      - name: Notify Slack
+        if: always()
+        run: |
+          STATUS_EMOJI="${{ steps.test_results.outputs.test_exit_code == '0' && ':white_check_mark:' || ':x:' }}"
+          
+          # Build test summary
+          TOTAL_TESTS="${{ steps.test_results.outputs.total_tests }}"
+          PASSED_TESTS="${{ steps.test_results.outputs.passed_tests }}"
+          FAILED_TESTS="${{ steps.test_results.outputs.failed_tests }}"
+          
+          TEST_SUMMARY="📊 Test Results: $PASSED_TESTS/$TOTAL_TESTS passed"
+          
+          # Add failed test details if any
+          if [ "$FAILED_TESTS" != "0" ]; then
+            FAILED_NAMES="${{ steps.test_results.outputs.failed_test_names }}"
+            if [ -n "$FAILED_NAMES" ]; then
+              # Replace | with newlines and limit to first few
+              FAILED_LIST=$(echo "$FAILED_NAMES" | tr '|' '\n' | head -5 | sed 's/^/• /' | tr '\n' '\\n')
+              TEST_SUMMARY="$TEST_SUMMARY\\n\\n❌ Failed Tests:\\n$FAILED_LIST"
+              if [ "$FAILED_TESTS" -gt "5" ]; then
+                TEST_SUMMARY="$TEST_SUMMARY\\n• ...and $((FAILED_TESTS - 5)) more"
+              fi
+            fi
+          fi
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"icon_emoji\": \"$STATUS_EMOJI\",
+              \"channel\": \"#ai-agent-tests-feed\",
+              \"username\": \"AI Agent Tests\",
+              \"text\": \"$STATUS_EMOJI AI Agent Integration Tests completed\\n\\n$TEST_SUMMARY\\n\\n📁 Full reports: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Results & Artifacts>\"
+            }" \
+            ${{ secrets.SLACK_WEBHOOK_URL }}

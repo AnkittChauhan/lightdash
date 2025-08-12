@@ -20,6 +20,11 @@ const getDashboardText = (
         ? `${siteUrl}/projects/${dashboard.projectUuid}/dashboards/${dashboard.uuid}/view#dashboard-link`
         : undefined;
 
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleDateString();
+    };
+
     return `
     <Dashboard dashboardUuid="${dashboard.uuid}">
         <Name>${dashboard.name}</Name>
@@ -31,6 +36,43 @@ const getDashboardText = (
         }
         ${dashboardUrl ? `<Url>${dashboardUrl}</Url>` : ''}
         <SpaceUuid>${dashboard.spaceUuid}</SpaceUuid>
+        <ViewsCount>${dashboard.viewsCount}</ViewsCount>
+        ${
+            dashboard.firstViewedAt
+                ? `<FirstViewedAt>${formatDate(
+                      dashboard.firstViewedAt,
+                  )}</FirstViewedAt>`
+                : ''
+        }
+        ${
+            dashboard.lastModified
+                ? `<LastModified>${formatDate(
+                      dashboard.lastModified,
+                  )}</LastModified>`
+                : ''
+        }
+        ${
+            dashboard.createdBy
+                ? `<CreatedBy>${dashboard.createdBy.firstName} ${dashboard.createdBy.lastName}</CreatedBy>`
+                : ''
+        }
+        <Charts count="${dashboard.charts.length}">
+            ${dashboard.charts
+                .map(
+                    (chart) =>
+                        `<Chart>
+                            <Name>${chart.name}</Name>
+                            <ChartType>${chart.chartType}</ChartType>
+                            ${
+                                chart.description
+                                    ? `<Description>${chart.description}</Description>`
+                                    : ''
+                            }
+                            <ViewsCount>${chart.viewsCount}</ViewsCount>
+                        </Chart>`,
+                )
+                .join('\n            ')}
+        </Charts>
         ${
             dashboard.validationErrors && dashboard.validationErrors.length > 0
                 ? `<ValidationErrors count="${dashboard.validationErrors.length}"/>`

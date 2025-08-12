@@ -29,11 +29,17 @@ const getChartText = (chart: AllChartsSearchResult, siteUrl?: string) => {
             : undefined;
     }
 
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleDateString();
+    };
+
     return `
     <Chart chartUuid="${chart.uuid}">
         <Name>${chart.name}</Name>
         <SearchRank>${chart.search_rank}</SearchRank>
         <ChartType>${chart.chartType}</ChartType>
+        <ChartSource>${chart.chartSource}</ChartSource>
         ${
             chart.description
                 ? `<Description>${chart.description}</Description>`
@@ -41,6 +47,26 @@ const getChartText = (chart: AllChartsSearchResult, siteUrl?: string) => {
         }
         ${chartUrl ? `<Url>${chartUrl}</Url>` : ''}
         <SpaceUuid>${chart.spaceUuid}</SpaceUuid>
+        <ViewsCount>${chart.viewsCount}</ViewsCount>
+        ${
+            chart.firstViewedAt
+                ? `<FirstViewedAt>${formatDate(
+                      chart.firstViewedAt,
+                  )}</FirstViewedAt>`
+                : ''
+        }
+        ${
+            chart.lastModified
+                ? `<LastModified>${formatDate(
+                      chart.lastModified,
+                  )}</LastModified>`
+                : ''
+        }
+        ${
+            chart.createdBy
+                ? `<CreatedBy>${chart.createdBy.firstName} ${chart.createdBy.lastName}</CreatedBy>`
+                : ''
+        }
     </Chart>
     `.trim();
 };
